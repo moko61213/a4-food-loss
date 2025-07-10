@@ -22,6 +22,8 @@ socket_client = SocketModeClient(app_token=APP_LEVEL_TOKEN, web_client=client)
 CONFIG_FILE = "daily_post.json"
 TEMP_FILE = "daily_post_temp.json"
 
+logging.basicConfig(level=logging.INFO)
+
 def load_all_configs():
     if not os.path.exists(CONFIG_FILE):
         return []
@@ -47,16 +49,19 @@ def clear_temp():
         os.remove(TEMP_FILE)
 
 def extract_channel_id(text: str) -> str | None:
-    m = re.search(r"<#([A-Z0-9]+)(\|[^>]*)?>", text)
+    m = re.search(r"<#([A-Z0-9]+)(\\|[^>]*)?>", text)
     return m.group(1) if m else None
 
-def extract_channel_id_from_blocks(blocks) -> str | None:
-    for block in blocks:
-        for element in block.get("elements", []):
-            if element.get("type") == "rich_text_section":
-                for sub in element.get("elements", []):
-                    if sub.get("type") == "channel":
-                        return sub.get("channel_id")
+def extract_channel_id_from_blocks(blocks: list) -> str | None:
+    try:
+        for block in blocks:
+            for el in block.get("elements", []):
+                if el.get("type") == "rich_text_section":
+                    for item in el.get("elements", []):
+                        if item.get("type") == "channel":
+                            return item.get("channel_id")
+    except Exception as e:
+        logging.error(f"チャンネルID抽出エラー: {e}")
     return None
 
 def get_channel_id(channel_name: str) -> str | None:
@@ -76,7 +81,7 @@ def parse_fixed_interval(time_str: str, freq_str: str) -> tuple[int, int | None]
         return None, None
     h, m = map(int, time_str.split(":"))
     fixed_time = h * 3600 + m * 60
-
+    
     m2 = re.match(r"^(\d+)d$", freq_str)
     if m2:
         n = int(m2.group(1))
@@ -86,7 +91,7 @@ def parse_fixed_interval(time_str: str, freq_str: str) -> tuple[int, int | None]
         return interval, fixed_time
     return None, None
 
-def handle_command(text: str, event_channel: str, blocks=None):
+def handle_command(text: str, event_channel: str, blocks: list):
     if text.startswith("!投稿設定"):
         parts = text.split(" ", 3)
         if len(parts) < 4:
@@ -99,7 +104,7 @@ def handle_command(text: str, event_channel: str, blocks=None):
             client.chat_postMessage(channel=event_channel, text="❌ 時刻または頻度の指定が不正です。")
             return
 
-        channel_id = extract_channel_id(text) or extract_channel_id_from_blocks(blocks or []) or get_channel_id(channel_input)
+        channel_id = extract_channel_id(text) or extract_channel_id_from_blocks(blocks) or get_channel_id(channel_input)
         if not channel_id:
             client.chat_postMessage(channel=event_channel, text="❌ チャンネルが見つかりません。")
             return
@@ -129,7 +134,10 @@ def handle_command(text: str, event_channel: str, blocks=None):
         save_all_configs(configs)
         clear_temp()
 
-        client.chat_postMessage(channel=event_channel, text=f"✅ 登録完了: {message}")
+        client.chat_postMessage(
+            channel=event_channel,
+            text=f"✅ 登録完了: {message}"
+        )
 
     elif text.startswith("!投稿停止"):
         message = text[len("!投稿停止 "):].strip()
@@ -155,8 +163,10 @@ def handle_events(client: SocketModeClient, req: SocketModeRequest):
         event = req.payload.get("event", {})
         logging.info(f"イベント受信タイプ: {req.type}")
         logging.info(f"ペイロード内容: {json.dumps(req.payload, ensure_ascii=False, indent=2)}")
+
         if event.get("type") == "message" and "bot_id" not in event:
-            handle_command(event.get("text", ""), event.get("channel"), event.get("blocks"))
+            handle_command(event.get("text", ""), event.get("channel"), event.get("blocks", []))
+
         client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
 
 def load_last_post_time(msg):
@@ -203,9 +213,9 @@ def start_posting_loop():
     t.start()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     socket_client.connect()
     start_posting_loop()
     print("Bot 起動中...")
     while True:
         time.sleep(1)
+
