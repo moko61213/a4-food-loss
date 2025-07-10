@@ -49,7 +49,7 @@ def clear_temp():
         os.remove(TEMP_FILE)
 
 def extract_channel_id(text: str) -> str | None:
-    m = re.search(r"<#([A-Z0-9]+)(\\|[^>]*)?>", text)
+    m = re.search(r"<#([A-Z0-9]+)\|[^>]+>", text)
     return m.group(1) if m else None
 
 def extract_channel_id_from_blocks(blocks: list) -> str | None:
